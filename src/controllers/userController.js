@@ -166,7 +166,7 @@ export const changePassword = async (req, res) => {
 
 export const getProfile = async (req, res) => {
     const { userEmail } = req.params;
-    const {role } = req.body;
+    const { role } = req.body;
     try {
         const user = await User.findOne({ where: { email: userEmail } });
 
@@ -182,12 +182,17 @@ export const getProfile = async (req, res) => {
             case 'RIDER':
                 roleDetails = await Rider.findOne({ where: { userEmail } });
                 break;
-            case 'MANAGER':
-            case 'RESTAURANTMANAGER':
+            case 'RESTAURANT_MANAGER':
                 roleDetails = await RestaurantManager.findOne({ where: { userEmail } });
                 break;
             default:
                 return res.status(400).send('Invalid role provided');
+        }
+
+        if(!roleDetails) {
+            return res.status(404).json({
+                error: "user not found"
+            });
         }
 
         const responseData = {
