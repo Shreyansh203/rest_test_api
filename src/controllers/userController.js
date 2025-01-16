@@ -6,14 +6,14 @@ import RestaurantManager from '../models/RestaurantManager.js';
 import bcrypt from 'bcrypt';
 
 export const signUp = async (req, res) => {
-    const { email, phoneNumber, first_name, last_name, password, role, restaurantId } = req.body;
+    const { userEmail, phoneNumber, first_name, last_name, password, role, restaurantId } = req.body;
 
-    if (!email || !password || !role) {
+    if (!userEmail || !password || !role) {
         return res.status(400).send('Incomplete or wrong details');
     }
 
     try {
-        let existingUser = await User.findOne({ where: { email } });
+        let existingUser = await User.findOne({ where: { email: userEmail } });
         let hashedPassword;
 
         if (!existingUser) {
@@ -21,7 +21,7 @@ export const signUp = async (req, res) => {
             hashedPassword = await bcrypt.hash(password, saltRounds);
 
             existingUser = await User.create({
-                email,
+                email: userEmail,
                 phoneNumber,
                 first_name,
                 last_name,
@@ -32,16 +32,16 @@ export const signUp = async (req, res) => {
         let roleDetails;
         switch (role.toUpperCase()) {
             case 'CUSTOMER':
-                roleDetails = (await Customer.findOrCreate({ where: { userEmail: email } }))[0];
+                roleDetails = (await Customer.findOrCreate({ where: { userEmail: userEmail } }))[0];
                 break;
             case 'RIDER':
-                roleDetails = (await Rider.findOrCreate({ where: { userEmail: email } }))[0];
+                roleDetails = (await Rider.findOrCreate({ where: { userEmail: userEmail } }))[0];
                 break;
             case 'RESTAURANT_MANAGER':
                 if (!restaurantId) {
                     return res.status(400).send('Restaurant ID is required for Restaurant Manager role');
                 }
-                roleDetails = (await RestaurantManager.findOrCreate({ where: { userEmail: email, restaurantId } }))[0];
+                roleDetails = (await RestaurantManager.findOrCreate({ where: { userEmail: userEmail, restaurantId } }))[0];
                 break;
             default:
                 return res.status(400).send('Invalid role provided');
@@ -50,7 +50,7 @@ export const signUp = async (req, res) => {
         console.log(roleDetails);
 
         const responseData = {
-            email: existingUser.email,
+            userEmail: existingUser.email,
             phoneNumber: existingUser.phoneNumber,
             first_name: existingUser.first_name,
             last_name: existingUser.last_name,
@@ -68,19 +68,19 @@ export const login = async (req, res) => {
     const { userEmail, password, role } = req.body;
 
     if (!userEmail || !password || !role) {
-        return res.status(400).send('Incomplete or wrong details');
+        return res.status(400).json({error: 'Incomplete or wrong details'});
     }
 
     try {
         const user = await User.findOne({ where: { email: userEmail } });
 
         if (!user) {
-            return res.status(401).send('Invalid email or password');
+            return res.status(401).json({error: 'Invalid email or password'});
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-            return res.status(401).send('Invalid email or password');
+            return res.status(401).json({error: 'Invalid email or password'});
         }
 
         let roleExists = false;
@@ -109,7 +109,7 @@ export const login = async (req, res) => {
                 }
                 break;
             default:
-                return res.status(400).send('Invalid role provided');
+                return res.status(400).json({error: 'Invalid role provided'});
         }
 
         if (roleExists) {
@@ -125,10 +125,10 @@ export const login = async (req, res) => {
                 roleDetails: roleDetails
             });
         } else {
-            return res.status(401).send('User does not exist for any valid role');
+            return res.status(401).json({error: 'User does not exist for any valid role'});
         }
     } catch (err) {
-        res.status(500).send('Error: ' + err.message);
+        res.status(500).json({error:  err.message});
     }
 };
 
@@ -139,27 +139,27 @@ export const changePassword = async (req, res) => {
     console.log(userEmail, currentPassword, newPassword); 
 
     if (!userEmail || !newPassword || !currentPassword) {
-        return res.status(400).send('Incomplete details');
+        return res.status(400).json({error: 'Incomplete details'});
     }
 
     try {
         const user = await User.findOne({ where: { email: userEmail } });
         if (!user) {
-            return res.status(404).send('User not found');
+            return res.status(404).json({error: 'User not found'});
         }
 
         const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
         if (!isPasswordValid) {
-            return res.status(401).send('Invalid email or password');
+            return res.status(401).json({error: 'Invalid email or password'});
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
         await User.update({ password: hashedPassword }, { where: { email: userEmail } });
 
-        res.status(200).send('Password changed successfully');
+        res.status(200).json({message: 'Password changed successfully'});
     } catch (err) {
-        res.status(500).send('Error: ' + err.message);
+        res.status(500).json({error: err.message});
     }
 };
 
@@ -171,7 +171,7 @@ export const getProfile = async (req, res) => {
         const user = await User.findOne({ where: { email: userEmail } });
 
         if (!user) {
-            return res.status(404).send('Profile not found');
+            return res.status(404).json({error: 'Profile not found'});
         }
 
         let roleDetails;
@@ -186,7 +186,7 @@ export const getProfile = async (req, res) => {
                 roleDetails = await RestaurantManager.findOne({ where: { userEmail } });
                 break;
             default:
-                return res.status(400).send('Invalid role provided');
+                return res.status(400).json({error: 'Invalid role provided'});
         }
 
         if(!roleDetails) {
@@ -204,21 +204,28 @@ export const getProfile = async (req, res) => {
             roleDetails
         };
 
-        res.status(200).send(responseData);
+        res.status(200).json(responseData);
     } catch (err) {
-        res.status(500).send('Error: ' + err.message);
+        res.status(500).json({error:  err.message});
     }
 };
 
 
 export const updateProfile = async (req, res) => {
     const { userEmail } = req.params;
-    const updatedDetails = req.body;
+
+    const allowedUpdates = ["first_name", "last_name"];
+    const updates = Object.keys(req.body).filter((update) => allowedUpdates.includes(update));
+    const updatedDetails = updates.reduce((acc, update) => {
+        acc[update] = req.body[update];
+        return acc;
+    }, {});
 
     try {
         await User.update(updatedDetails, { where: { email: userEmail } });
         const updatedUser = await User.findOne({ where: { email: userEmail } });
-        res.status(200).send(updatedUser);
+        const { password, ...userWithoutPassword } = updatedUser.dataValues;
+        res.status(200).send(userWithoutPassword);
     } catch (err) {
         res.status(400).send('Error: ' + err.message);
     }
