@@ -5,7 +5,7 @@ import User from './User.js';
 
 // RestaurantManager Model
 const RestaurantManager = sequelize.define(
-    'RestaurantManager',
+    'Restaurant_Manager',
     {
         userEmail: {
             type: DataTypes.STRING,
@@ -19,13 +19,15 @@ const RestaurantManager = sequelize.define(
         },
         restaurantId: {
             type: DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
         },
     },
     {
         timestamps: false, // Disable automatic timestamp fields
-        tableName: 'RestaurantManager', // Explicitly define table name
+        tableName: 'Restaurant_Manager', // Explicitly define table name
     }
 );
 
-export default RestaurantManager;
+export default RestaurantManager; 
+
+

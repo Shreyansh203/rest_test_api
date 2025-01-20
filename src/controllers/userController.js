@@ -5,49 +5,63 @@ import RestaurantManager from '../models/RestaurantManager.js';
 
 import bcrypt from 'bcrypt';
 
+ import sequelize from '../config/mysql.js'; 
+
 export const signUp = async (req, res) => {
-    const { userEmail, phoneNumber, first_name, last_name, password, role, restaurantId } = req.body;
+    const { userEmail, phoneNumber, first_name, last_name, password, role } = req.body;
 
     if (!userEmail || !password || !role) {
         return res.status(400).send('Incomplete or wrong details');
     }
 
+    const t = await sequelize.transaction(); // Create a transaction object
+
     try {
-        let existingUser = await User.findOne({ where: { email: userEmail } });
-        let hashedPassword;
 
-        if (!existingUser) {
-            const saltRounds = 10;
-            hashedPassword = await bcrypt.hash(password, saltRounds);
+        let existingUser = await User.findOne({ where: { email: userEmail }, transaction: t });
 
-            existingUser = await User.create({
+        if (existingUser) {
+            await t.rollback(); // Rollback if the user already exists
+            return res.status(400).send('Already exists');
+        }
+
+       
+
+        // Hash the password and create the user
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        existingUser = await User.create(
+            {
                 email: userEmail,
                 phoneNumber,
                 first_name,
                 last_name,
                 password: hashedPassword
-            });
-        }
-
+            },
+            { transaction: t } // Specify the transaction
+        );
         let roleDetails;
         switch (role.toUpperCase()) {
             case 'CUSTOMER':
-                roleDetails = (await Customer.findOrCreate({ where: { userEmail: userEmail } }))[0];
+                roleDetails = (await Customer.findOrCreate({ where: { userEmail: userEmail }, transaction: t }))[0];
                 break;
             case 'RIDER':
-                roleDetails = (await Rider.findOrCreate({ where: { userEmail: userEmail } }))[0];
+                roleDetails = (await Rider.findOrCreate({ where: { userEmail: userEmail }, transaction: t }))[0];
                 break;
             case 'RESTAURANT_MANAGER':
-                if (!restaurantId) {
-                    return res.status(400).send('Restaurant ID is required for Restaurant Manager role');
-                }
-                roleDetails = (await RestaurantManager.findOrCreate({ where: { userEmail: userEmail, restaurantId } }))[0];
+                // If the role is restaurant manager, ensure a restaurant ID is provided (if necessary)
+                // if (!restaurantId) {
+                //     await t.rollback(); // Rollback if missing restaurant ID
+                //     return res.status(400).send('Restaurant ID is required for Restaurant Manager role');
+                // }
+                roleDetails = (await RestaurantManager.findOrCreate({ where: { userEmail: userEmail }, transaction: t }))[0];
                 break;
             default:
+                await t.rollback(); // Rollback for invalid role
                 return res.status(400).send('Invalid role provided');
         }
-
-        console.log(roleDetails);
+        throw new Error('Test error');
 
         const responseData = {
             userEmail: existingUser.email,
@@ -57,12 +71,56 @@ export const signUp = async (req, res) => {
             role: role.toUpperCase(),
             roleDetails
         };
-
+        // Commit the transaction
+        await t.commit();
         res.status(201).send(responseData);
     } catch (err) {
+        await t.rollback(); // Rollback the transaction in case of any errors
         res.status(400).send('Error: ' + err.message);
     }
 };
+
+
+
+export const linkRestid = async (req, res) => {
+    const { restaurantId } = req.body; 
+    const { userEmail } = req.params; 
+
+    try {
+        
+        const restaurantManager = await RestaurantManager.findOne({
+            where: {
+                userEmail
+            },
+        });
+
+        if (!restaurantManager) {
+             return res.status(404).json({error: 'No matching record found '});
+        }
+        else if(restaurantManager.restaurantId){
+            return res.status(400).json({error: 'Restaurant ID already exists'});
+        }
+        restaurantManager.restaurantId = restaurantId;
+        await restaurantManager.save();
+        let existingUser = await User.findOne({ where: { email: userEmail } });
+        let roleDetails = (await RestaurantManager.findOrCreate({ where: { userEmail: userEmail } }))[0];
+        const responseData = {
+            userEmail: existingUser.email,
+            phoneNumber: existingUser.phoneNumber,
+            first_name: existingUser.first_name,
+            last_name: existingUser.last_name,
+            role: 'RESTAURANT_MANAGER',
+            roleDetails
+        };
+
+        res.status(200).json(responseData);
+    } catch (error) {
+        return res.status(500).json({
+            error: error.message,
+        });
+    }
+};
+
 
 export const login = async (req, res) => {
     const { userEmail, password, role } = req.body;
